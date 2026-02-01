@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: ai-voice-detector
+    env: python
+    buildCommand: ""
+    startCommand: bash start.sh
+    plan: free
