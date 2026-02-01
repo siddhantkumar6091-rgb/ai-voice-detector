@@ -4,22 +4,11 @@ import joblib
 import numpy as np
 import os
 
-from fastapi import FastAPI, HTTPException, Security
-from fastapi.security import APIKeyHeader
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from python.feature_extractor import extract_features
-
-# ---------------- API KEY CONFIG ----------------
-API_KEY = os.getenv("API_KEY", "hackathon-secret-key")
-api_key_header = APIKeyHeader(name="X-API-KEY")
-
-def verify_api_key(api_key: str = Security(api_key_header)):
-    if api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid API Key")
-
-# ------------------------------------------------
 
 app = FastAPI()
 
@@ -27,15 +16,25 @@ app = FastAPI()
 def home():
     return RedirectResponse(url="/docs")
 
-# Load trained model
+
+# 🔐 API KEY from Render
+API_KEY = os.getenv("API_KEY")
+
+def verify_key(x_api_key: str = Header(...)):
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API Key")
+
+
 model = joblib.load("model/voice_model.pkl")
 
 class AudioRequest(BaseModel):
     audio_base64: str
 
 
-@app.post("/detect", dependencies=[Security(verify_api_key)])
-def detect_voice(req: AudioRequest):
+@app.post("/detect")
+def detect_voice(req: AudioRequest, x_api_key: str = Header(...)):
+    verify_key(x_api_key)
+
     try:
         audio_bytes = base64.b64decode(req.audio_base64)
 
