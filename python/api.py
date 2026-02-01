@@ -6,11 +6,16 @@ import os
 
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from python.feature_extractor import extract_features
-from fastapi.middleware.cors import CORSMiddleware
 
+
+# ✅ APP FIRST
+app = FastAPI()
+
+# ✅ CORS AFTER APP
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,9 +23,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-app = FastAPI()
 
 @app.get("/")
 def home():
@@ -35,7 +37,9 @@ def verify_key(x_api_key: str = Header(...)):
         raise HTTPException(status_code=401, detail="Invalid API Key")
 
 
+# ✅ Load model
 model = joblib.load("model/voice_model.pkl")
+
 
 class AudioRequest(BaseModel):
     audio_base64: str
