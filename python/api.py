@@ -9,6 +9,12 @@ from python.feature_extractor import extract_features
 
 
 app = FastAPI()
+from fastapi.responses import RedirectResponse
+
+@app.get("/")
+def home():
+    return RedirectResponse(url="/docs")
+
 
 model = joblib.load("model/voice_model.pkl")
 
