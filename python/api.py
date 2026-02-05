@@ -3,6 +3,7 @@ import tempfile
 import joblib
 import numpy as np
 import os
+import gc
 
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import RedirectResponse
@@ -34,10 +35,10 @@ def verify_key(x_api_key: str = Header(...)):
         raise HTTPException(status_code=401, detail="Invalid API Key")
 
 
+# ✅ Load model ONCE (global, memory stable)
 model = joblib.load("model/voice_model.pkl")
 
 
-# ✅ Hackathon-compatible request body
 class AudioRequest(BaseModel):
     language: str | None = None
     audioFormat: str | None = None
@@ -51,23 +52,45 @@ class AudioRequest(BaseModel):
 def detect_voice(req: AudioRequest, x_api_key: str = Header(...)):
     verify_key(x_api_key)
 
+    tmp_path = None
+
     try:
+        # ✅ Decode audio
         audio_bytes = base64.b64decode(req.audio_base64)
 
-        with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:
+        # ✅ Write to temp file (not memory)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
             tmp.write(audio_bytes)
-            tmp.flush()
+            tmp_path = tmp.name
 
-            features = extract_features(tmp.name)
-            features = np.array(features).reshape(1, -1)
+        # ✅ Extract features
+        features = extract_features(tmp_path)
 
-            prob = model.predict_proba(features)[0]
-            label = int(np.argmax(prob))
+        # ✅ Force float32 (half memory of float64)
+        features = np.array(features, dtype=np.float32).reshape(1, -1)
 
-            return {
-                "result": "AI_GENERATED" if label == 1 else "HUMAN",
-                "confidence": round(float(prob[label]), 4)
-            }
+        # ✅ Predict
+        prob = model.predict_proba(features)[0]
+        label = int(np.argmax(prob))
+
+        result = {
+            "result": "AI_GENERATED" if label == 1 else "HUMAN",
+            "confidence": round(float(prob[label]), 4)
+        }
+
+        return result
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    finally:
+        # ✅ CRITICAL MEMORY CLEANUP
+        try:
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except:
+            pass
+
+        del features
+        del audio_bytes
+        gc.collect()
