@@ -13,6 +13,9 @@ from pydantic import BaseModel, Field
 from python.feature_extractor import extract_features
 
 
+# =========================
+# APP INIT
+# =========================
 app = FastAPI(title="AI vs Human Voice Detector")
 
 app.add_middleware(
@@ -28,17 +31,26 @@ def home():
     return RedirectResponse(url="/docs")
 
 
+# =========================
+# API KEY
+# =========================
 API_KEY = os.getenv("API_KEY")
 
 def verify_key(x_api_key: str = Header(...)):
-    if x_api_key != API_KEY:
+    if not API_KEY or x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API Key")
 
 
-# ✅ Load model ONCE (global, memory stable)
+# =========================
+# LOAD MODEL (ONCE)
+# =========================
 model = joblib.load("model/voice_model.pkl")
+EXPECTED_FEATURES = model.n_features_in_   # 🔥 AUTO SYNC
 
 
+# =========================
+# REQUEST SCHEMA
+# =========================
 class AudioRequest(BaseModel):
     language: str | None = None
     audioFormat: str | None = None
@@ -48,43 +60,56 @@ class AudioRequest(BaseModel):
         populate_by_name = True
 
 
+# =========================
+# MAIN API
+# =========================
 @app.post("/detect")
 def detect_voice(req: AudioRequest, x_api_key: str = Header(...)):
     verify_key(x_api_key)
 
     tmp_path = None
+    features = None
+    audio_bytes = None
 
     try:
-        # ✅ Decode audio
+        # 🔹 Decode Base64
         audio_bytes = base64.b64decode(req.audio_base64)
 
-        # ✅ Write to temp file (not memory)
+        # 🔹 Write temp WAV
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
 
-        # ✅ Extract features
+        # 🔹 Extract features
         features = extract_features(tmp_path)
+        features = np.array(features, dtype=np.float32)
 
-        # ✅ Force float32 (half memory of float64)
-        features = np.array(features, dtype=np.float32).reshape(1, -1)
+        # 🔥 FEATURE COUNT FIX
+        if features.shape[0] != EXPECTED_FEATURES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Feature mismatch: got {features.shape[0]}, expected {EXPECTED_FEATURES}"
+            )
 
-        # ✅ Predict
+        features = features.reshape(1, -1)
+
+        # 🔹 Predict
         prob = model.predict_proba(features)[0]
         label = int(np.argmax(prob))
 
-        result = {
+        return {
             "result": "AI_GENERATED" if label == 1 else "HUMAN",
             "confidence": round(float(prob[label]), 4)
         }
 
-        return result
+    except HTTPException:
+        raise
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     finally:
-        # ✅ CRITICAL MEMORY CLEANUP
+        # 🔥 CLEANUP (VERY IMPORTANT FOR RENDER)
         try:
             if tmp_path and os.path.exists(tmp_path):
                 os.remove(tmp_path)
