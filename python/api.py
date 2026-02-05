@@ -7,15 +7,13 @@ import os
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from python.feature_extractor import extract_features
 
 
-# ✅ APP FIRST
 app = FastAPI(title="AI vs Human Voice Detector")
 
-# ✅ CORS AFTER APP
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,33 +27,28 @@ def home():
     return RedirectResponse(url="/docs")
 
 
-# 🔐 API KEY from Render
 API_KEY = os.getenv("API_KEY")
 
-def verify_key(x_api_key: str = Header(..., alias="x-api-key")):
-    if not API_KEY:
-        raise HTTPException(status_code=500, detail="API key not configured")
+def verify_key(x_api_key: str = Header(...)):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API Key")
 
 
-# ✅ Load model
 model = joblib.load("model/voice_model.pkl")
 
 
-# ✅ Hackathon-friendly schema
+# ✅ Hackathon-compatible request body
 class AudioRequest(BaseModel):
-    audio_base64: str
     language: str | None = None
-    audio_format: str | None = None
-    audio_base64_format: str | None = None
+    audioFormat: str | None = None
+    audio_base64: str = Field(..., alias="audioBase64")
+
+    class Config:
+        populate_by_name = True
 
 
 @app.post("/detect")
-def detect_voice(
-    req: AudioRequest,
-    x_api_key: str = Header(..., alias="x-api-key")
-):
+def detect_voice(req: AudioRequest, x_api_key: str = Header(...)):
     verify_key(x_api_key)
 
     try:
@@ -73,7 +66,7 @@ def detect_voice(
 
             return {
                 "result": "AI_GENERATED" if label == 1 else "HUMAN",
-                "confidence": round(float(prob[label]), 3)
+                "confidence": round(float(prob[label]), 4)
             }
 
     except Exception as e:
